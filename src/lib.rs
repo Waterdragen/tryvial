@@ -93,11 +93,80 @@ macro_rules! try_block {
     }
 }
 
+/// Macro for the receiving end of a `?` operation.
+/// Supports bare `continue` and `break` statements.
+/// Must be used in a loop.
+///
+/// ```
+/// # use tryvial::try_in_loop;
+/// use std::num::ParseFloatError;
+/// let string_fractions = [("1", "2"), ("15", "3"), ("0", "0"), ("ten", "five")];
+/// let mut ratios = Vec::new();
+/// for (numer, denom) in string_fractions {
+///     // Note: this fails without explicitly specifying the error type.
+///     let ratio: Result<f64, ParseFloatError> = try_in_loop! {
+///         let denom = denom.parse::<f64>()?;
+///         if denom == 0.0 {
+///             continue;
+///         }
+///         let numer = numer.parse::<f64>()?;
+///         numer / denom
+///     };
+///     ratios.push(ratio);
+/// }
+/// assert!(matches!(ratios[..], [Ok(0.5), Ok(5.0), Err(_)]));
+/// ```
+#[macro_export]
+macro_rules! try_in_loop {
+    ( $($token:tt)* ) => {{
+        use ::core::mem::MaybeUninit;
+        use ::core::ops::ControlFlow;
+        let mut control_flow: Option<ControlFlow<()>> = None;
+
+        let value = (|| {
+            let mut _flag = false;
+            loop {
+                if _flag {
+                    // Encounter continue
+                    control_flow = Some(ControlFlow::Continue(()));
+                    // SAFETY: control_flow is always `Some` so this value is never used
+                    #[allow(invalid_value)]
+                    return unsafe { MaybeUninit::uninit().assume_init() };
+                }
+                _flag = true;
+                // early return or last expression
+                #[allow(unreachable_code)]
+                #[allow(clippy::diverging_sub_expression)]
+                {
+                    let _last_expr = { $($token)* };
+                    return $crate::wrap_ok!(_last_expr);
+                }
+            };
+
+            #[allow(unreachable_code)]
+            {
+                // Encounter break
+                control_flow = Some(ControlFlow::Break(()));
+                // SAFETY: control_flow is always `Some` so this value is never used
+                #[allow(invalid_value)]
+                return unsafe { MaybeUninit::uninit().assume_init() }
+            }
+        })();
+
+        match control_flow {
+            None => value,
+            Some(ControlFlow::Continue(_)) => continue,
+            Some(ControlFlow::Break(_)) => break,
+        }
+    }};
+}
+
 #[cfg(test)]
 extern crate alloc;
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
     use super::*;
     use core::ops::ControlFlow;
 
@@ -145,5 +214,39 @@ mod tests {
     #[test]
     fn test_parse() {
         assert!(matches!("34".try_into(), Ok(MyStruct(34))));
+    }
+
+    #[test]
+    fn test_continue() {
+        let results: [Result<u8, u8>; 8] = [Ok(0), Ok(1), Ok(2), Err(3), Ok(4), Ok(5), Err(6), Ok(7)];
+        let mut new_results: Vec<Result<u8, u8>> = Vec::new();
+        for result in results {
+            let new_result = try_in_loop!(
+                let num = result?;
+                if num % 2 == 0 {
+                    continue;
+                }
+                num
+            );
+            new_results.push(new_result);
+        }
+        assert_eq!(new_results, [Ok(1), Err(3), Ok(5), Err(6), Ok(7)]);
+    }
+
+    #[test]
+    fn test_break() {
+        let results: [Result<u8, u8>; 7] = [Ok(3), Ok(1), Err(3), Ok(2), Ok(5), Err(6), Ok(7)];
+        let mut new_results: Vec<Result<u8, u8>> = Vec::new();
+        for result in results {
+            let new_result = try_in_loop!(
+                let num = result?;
+                if num % 2 == 0 {
+                    break;
+                }
+                num
+            );
+            new_results.push(new_result);
+        }
+        assert_eq!(new_results, [Ok(3), Ok(1), Err(3)]);
     }
 }
