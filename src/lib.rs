@@ -166,8 +166,8 @@ extern crate alloc;
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
     use super::*;
+    use alloc::vec::Vec;
     use core::ops::ControlFlow;
 
     /// This is a doc comment.
@@ -218,7 +218,8 @@ mod tests {
 
     #[test]
     fn test_continue() {
-        let results: [Result<u8, u8>; 8] = [Ok(0), Ok(1), Ok(2), Err(3), Ok(4), Ok(5), Err(6), Ok(7)];
+        let results: [Result<u8, u8>; 8] =
+            [Ok(0), Ok(1), Ok(2), Err(3), Ok(4), Ok(5), Err(6), Ok(7)];
         let mut new_results: Vec<Result<u8, u8>> = Vec::new();
         for result in results {
             let new_result = try_in_loop!(
